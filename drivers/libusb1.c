@@ -46,7 +46,7 @@ upsdrv_info_t comm_upsdrv_info = {
 
 #define MAX_REPORT_SIZE         0x1800
 
-static void nut_libusb_close(libusb_device_handle *udev);
+static void nut_libusb_close(USBHandle_t *udev);
 
 /*! Add USB-related driver variables with addvar() and dstate_setinfo().
  * This removes some code duplication across the USB drivers.
@@ -119,7 +119,7 @@ static inline int matches(USBDeviceMatcher_t *matcher, USBDevice_t *device) {
  * devices from working on Mac OS X (presumably the OS is already setting
  * altinterface to 0).
  */
-static int nut_libusb_set_altinterface(libusb_device_handle *udev)
+static int nut_libusb_set_altinterface(USBHandle_t *udev)
 {
 	int altinterface = 0, ret = 0;
 	char *alt_string, *endp = NULL;
@@ -138,7 +138,7 @@ static int nut_libusb_set_altinterface(libusb_device_handle *udev)
 		/* set default interface */
 		upsdebugx(2, "%s: calling libusb_set_interface_alt_setting(udev, %d, %d)",
 			__func__, usb_subdriver.hid_rep_index, altinterface);
-		ret = libusb_set_interface_alt_setting(udev, usb_subdriver.hid_rep_index, altinterface);
+		ret = libusb_set_interface_alt_setting(udev->dev_handle, usb_subdriver.hid_rep_index, altinterface);
 		if(ret != 0) {
 			upslogx(LOG_WARNING, "%s: libusb_set_interface_alt_setting(udev, %d, %d) returned %d (%s)",
 				__func__, usb_subdriver.hid_rep_index, altinterface, ret, libusb_strerror((enum libusb_error)ret) );
@@ -160,9 +160,9 @@ static int nut_libusb_set_altinterface(libusb_device_handle *udev)
  * is accepted, or < 1 if not. If it isn't accepted, the next device
  * (if any) will be tried, until there are no more devices left.
  */
-static int nut_libusb_open(libusb_device_handle **udevp,
+static int nut_libusb_open(USBHandle_t **udevp,
 	USBDevice_t *curDevice, USBDeviceMatcher_t *matcher,
-	int (*callback)(libusb_device_handle *udev,
+	int (*callback)(USBHandle_t *udev,
 		USBDevice_t *hd, usb_ctrl_charbuf rdbuf, usb_ctrl_charbufsize rdlen)
 	)
 {
@@ -179,7 +179,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 	struct libusb_device_descriptor dev_desc;
 	struct libusb_config_descriptor *conf_desc = NULL;
 	const struct libusb_interface_descriptor *if_desc;
-	libusb_device_handle *udev;
+	USBHandle_t *udev;
 	uint8_t bus_num, device_addr;
 #if (defined WITH_USB_BUSPORT) && (WITH_USB_BUSPORT)
 	uint8_t bus_port;
@@ -284,7 +284,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 	/* Causes a double free corruption in linux if device is detached! */
 	/* nut_libusb_close(*udevp); */
 	if (*udevp)
-		libusb_close(*udevp);
+		libusb_close(*udevp->dev_handle);
 #endif
 
 	devcount = libusb_get_device_list(NULL, &devlist);
@@ -293,6 +293,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 	 * its SSIZE_MAX < SIZE_MAX for devnum */
 	for (devnum = 0; (ssize_t)devnum < devcount; devnum++) {
 		/* int		if_claimed = 0; */
+		libusb_device_handle *dev_handle;
 		libusb_device	*device = devlist[devnum];
 
 		libusb_get_device_descriptor(device, &dev_desc);
@@ -303,7 +304,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 		/* supported vendors are now checked by the supplied matcher */
 
 		/* open the device */
-		ret = libusb_open(device, udevp);
+		ret = libusb_open(device, &dev_handle);
 		if (ret != 0) {
 			upsdebugx(1, "Failed to open device (%04X/%04X), skipping: %s",
 				dev_desc.idVendor,
@@ -315,7 +316,8 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 			}
 			continue;
 		}
-		udev = *udevp;
+		udev = xcalloc(1, sizeof(udev));
+		udev->dev_handle = dev_handle;
 
 		/* collect the identifying information of this
 		   device. Note that this is safe, because
@@ -501,11 +503,11 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 		 * Is the kernel driver active? Consider the unimplemented
 		 * return code to be equivalent to inactive here.
 		 */
-		if((ret = libusb_kernel_driver_active(udev, usb_subdriver.hid_rep_index)) == 1) {
+		if((ret = libusb_kernel_driver_active(udev->dev_handle, usb_subdriver.hid_rep_index)) == 1) {
 			upsdebugx(3, "libusb_kernel_driver_active() returned 1 (driver active)");
 			/* Try the auto-detach kernel driver method.
 			 * This function is not available on FreeBSD 10.1-10.3 */
-			if ((ret = libusb_set_auto_detach_kernel_driver (udev, 1)) != LIBUSB_SUCCESS) {
+			if ((ret = libusb_set_auto_detach_kernel_driver (udev->dev_handle, 1)) != LIBUSB_SUCCESS) {
 				upsdebugx(1, "failed to set kernel driver auto-detach "
 					"driver flag for USB device: %s",
 					libusb_strerror((enum libusb_error)ret));
@@ -523,11 +525,11 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 		 * This function is available on FreeBSD 10.1-10.3 */
 #ifdef WIN32
 		/* TODO: Align with libusb1 - initially from Windows branch made against libusb0 */
-		libusb_set_configuration(udev, 1);
+		libusb_set_configuration(udev->dev_handle, 1);
 #endif
 
 		retries = 3;
-		while ((ret = libusb_claim_interface(udev, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
+		while ((ret = libusb_claim_interface(udev->dev_handle, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
 			upsdebugx(2, "failed to claim USB device: %s",
 				libusb_strerror((enum libusb_error)ret));
 
@@ -537,9 +539,9 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 			}
 
 # ifdef HAVE_LIBUSB_DETACH_KERNEL_DRIVER
-			if ((ret = libusb_detach_kernel_driver(udev, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
+			if ((ret = libusb_detach_kernel_driver(udev->dev_handle, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
 # else /* if defined HAVE_LIBUSB_DETACH_KERNEL_DRIVER_NP) */
-			if ((ret = libusb_detach_kernel_driver_np(udev, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
+			if ((ret = libusb_detach_kernel_driver_np(udev->dev_handle, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS) {
 # endif
 				if (ret == LIBUSB_ERROR_NOT_FOUND) {
 					/* logged as "Entity not found" if this persists */
@@ -567,7 +569,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 				libusb_strerror((enum libusb_error)ret));
 		}
 #else
-		if ((ret = libusb_claim_interface(udev, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS ) {
+		if ((ret = libusb_claim_interface(udev->dev_handle, usb_subdriver.hid_rep_index)) != LIBUSB_SUCCESS ) {
 			if (ret == LIBUSB_ERROR_BUSY && testvar("allow_duplicates")) {
 				upsdebugx(2, "Configured to allow_duplicates so looking for another similar device");
 				goto next_device;
@@ -615,7 +617,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 
 		/* FIRST METHOD: ask for HID descriptor directly. */
 		/* libusb0: USB_ENDPOINT_IN + 1 */
-		res = libusb_control_transfer(udev,
+		res = libusb_control_transfer(udev->dev_handle,
 			LIBUSB_ENDPOINT_IN|LIBUSB_REQUEST_TYPE_STANDARD|LIBUSB_RECIPIENT_INTERFACE,
 			LIBUSB_REQUEST_GET_DESCRIPTOR,
 			(LIBUSB_DT_HID << 8) + usb_subdriver.hid_desc_index,
@@ -720,7 +722,7 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 		}
 
 		/* libusb0: USB_ENDPOINT_IN + 1 */
-		res = libusb_control_transfer(udev,
+		res = libusb_control_transfer(udev->dev_handle,
 			LIBUSB_ENDPOINT_IN|LIBUSB_REQUEST_TYPE_STANDARD|LIBUSB_RECIPIENT_INTERFACE,
 			LIBUSB_REQUEST_GET_DESCRIPTOR,
 			(LIBUSB_DT_REPORT << 8) + usb_subdriver.hid_desc_index,
@@ -794,9 +796,10 @@ static int nut_libusb_open(libusb_device_handle **udevp,
 			into uninterruptible sleep.  So don't do it. */
 			/* if (if_claimed)
 				libusb_release_interface(udev, usb_subdriver.hid_rep_index); */
-			libusb_close(udev);
+			libusb_close(udev->dev_handle);
 	}
 
+	// Hmm
 	*udevp = NULL;
 	libusb_free_device_list(devlist, 1);
 	upsdebugx(2, "libusb1: No appropriate HID device found");
@@ -882,7 +885,7 @@ static int nut_libusb_strerror(const int ret, const char *desc)
  *	int ReportId, unsigned char *raw_buf, int ReportSize)
  */
 static int nut_libusb_get_report(
-	libusb_device_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_repindex ReportId,
 	usb_ctrl_charbuf raw_buf,
 	usb_ctrl_charbufsize ReportSize)
@@ -914,7 +917,7 @@ static int nut_libusb_get_report(
 	}
 
 	/* libusb0: USB_ENDPOINT_IN + USB_TYPE_CLASS + USB_RECIP_INTERFACE */
-	ret = libusb_control_transfer(udev,
+	ret = libusb_control_transfer(udev->dev_handle,
 		LIBUSB_ENDPOINT_IN|LIBUSB_REQUEST_TYPE_CLASS|LIBUSB_RECIPIENT_INTERFACE,
 		0x01, /* HID_REPORT_GET */
 		(uint16_t)ReportId + (0x03<<8), /* HID_REPORT_TYPE_FEATURE */
@@ -934,7 +937,7 @@ static int nut_libusb_get_report(
  *	int ReportId, unsigned char *raw_buf, int ReportSize)
  */
 static int nut_libusb_set_report(
-	libusb_device_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_repindex ReportId,
 	usb_ctrl_charbuf raw_buf,
 	usb_ctrl_charbufsize ReportSize)
@@ -964,7 +967,7 @@ static int nut_libusb_set_report(
 	}
 
 	/* libusb0: USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE */
-	ret = libusb_control_transfer(udev,
+	ret = libusb_control_transfer(udev->dev_handle,
 		LIBUSB_ENDPOINT_OUT|LIBUSB_REQUEST_TYPE_CLASS|LIBUSB_RECIPIENT_INTERFACE,
 		0x09, /* HID_REPORT_SET = 0x09*/
 		(uint16_t)ReportId + (0x03<<8), /* HID_REPORT_TYPE_FEATURE */
@@ -984,7 +987,7 @@ static int nut_libusb_set_report(
  *	uint8_t StringIdx, unsigned char *buf, uint16_t buflen)
  */
 static int nut_libusb_get_string(
-	libusb_device_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_strindex StringIdx,
 	char *buf,
 	usb_ctrl_charbufsize buflen)
@@ -1018,7 +1021,7 @@ static int nut_libusb_get_string(
  *	unsigned char *buf, int bufsize, int timeout)
  */
 static int nut_libusb_get_interrupt(
-	libusb_device_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_charbuf buf,
 	usb_ctrl_charbufsize bufsize,
 	usb_ctrl_timeout_msec timeout)
@@ -1058,13 +1061,13 @@ static int nut_libusb_get_interrupt(
 	/* ret = libusb_interrupt_transfer(udev, 0x81, buf, bufsize, &bufsize, timeout); */
 	/* libusb0: ret = usb_interrupt_read(udev, USB_ENDPOINT_IN + usb_subdriver.hid_ep_in, (char *)buf, bufsize, timeout); */
 	/* Interrupt EP is LIBUSB_ENDPOINT_IN with offset defined in hid_ep_in, which is 0 by default, unless overridden in subdriver. */
-	ret = libusb_interrupt_transfer(udev,
+	ret = libusb_interrupt_transfer(udev->dev_handle,
 		LIBUSB_ENDPOINT_IN + usb_subdriver.hid_ep_in,
 		(unsigned char *)buf, tmpbufsize, &tmpbufsize, timeout);
 
 	/* Clear stall condition */
 	if (ret == LIBUSB_ERROR_PIPE) {
-		ret = libusb_clear_halt(udev, 0x81);
+		ret = libusb_clear_halt(udev->dev_handle, 0x81);
 	}
 
 	/* In case of success, return the operation size, as done with libusb 0.1 */
@@ -1080,7 +1083,7 @@ static int nut_libusb_get_interrupt(
 	return nut_libusb_strerror(ret, __func__);
 }
 
-static void nut_libusb_close(libusb_device_handle *udev)
+static void nut_libusb_close(USBHandle_t *udev)
 {
 	if (!udev) {
 		return;
@@ -1090,7 +1093,7 @@ static void nut_libusb_close(libusb_device_handle *udev)
 	 * into uninterruptible sleep.  So don't do it.
 	 */
 	/* libusb_release_interface(udev, usb_subdriver.hid_rep_index); */
-	libusb_close(udev);
+	libusb_close(udev->dev_handle);
 	libusb_exit(NULL);
 }
 

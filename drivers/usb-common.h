@@ -571,6 +571,6 @@ void warn_if_bad_usb_port_filename(const char *fn);
 /* Retrieves string descriptor from device, decoded to 8-bit string,
  * applies retries on failures, and assumes en_US in case the
  * langid descriptor is invalid. */
-int nut_usb_get_string(usb_dev_handle *udev, int StringIdx, char *buf, size_t buflen);
+int nut_usb_get_string(USBHandle_t *udev, int StringIdx, char *buf, size_t buflen);
 
 #endif /* NUT_USB_COMMON_H */

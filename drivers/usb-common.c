@@ -418,7 +418,7 @@ void warn_if_bad_usb_port_filename(const char *fn) {
 
 /* API neutral, handles retries */
 static int nut_usb_get_string_descriptor(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	int StringIdx,
 	int langid,
 	char *buf,
@@ -428,7 +428,7 @@ static int nut_usb_get_string_descriptor(
 	int tries = MAX_STRING_DESC_TRIES;
 
 	while (tries--) {
-		ret = usb_get_string(udev, (usb_ctrl_strindex)StringIdx, langid, (usb_ctrl_charbuf)buf, buflen);
+		ret = usb_get_string(udev->dev_handle, (usb_ctrl_strindex)StringIdx, langid, (usb_ctrl_charbuf)buf, buflen);
 		if (ret >= 0) {
 			break;
 		} else if (tries) {
@@ -441,7 +441,7 @@ static int nut_usb_get_string_descriptor(
 
 /* API neutral, assumes en_US if langid descriptor is broken */
 int nut_usb_get_string(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	int StringIdx,
 	char *buf,
 	size_t buflen)

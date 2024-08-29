@@ -59,7 +59,7 @@ upsdrv_info_t comm_upsdrv_info = {
 static char *strcasestr(const char *haystack, const char *needle);
 #endif
 
-static void nut_libusb_close(usb_dev_handle *udev);
+static void nut_libusb_close(USBHandle_t *udev);
 
 /*! Add USB-related driver variables with addvar() and dstate_setinfo().
  * This removes some code duplication across the USB drivers.
@@ -154,7 +154,7 @@ static inline int matches(USBDeviceMatcher_t *matcher, USBDevice_t *device) {
  * devices from working on Mac OS X (presumably the OS is already setting
  * altinterface to 0).
  */
-static int nut_libusb_set_altinterface(usb_dev_handle *udev)
+static int nut_libusb_set_altinterface(USBHandle_t *udev)
 {
 	int altinterface = 0, ret = 0;
 	char *alt_string, *endp = NULL;
@@ -173,7 +173,7 @@ static int nut_libusb_set_altinterface(usb_dev_handle *udev)
 		/* set default interface */
 		upsdebugx(2, "%s: calling usb_set_altinterface(udev, %d)",
 			__func__, altinterface);
-		ret = usb_set_altinterface(udev, altinterface);
+		ret = usb_set_altinterface(udev->dev_handle, altinterface);
 		if(ret != 0) {
 			upslogx(LOG_WARNING, "%s: usb_set_altinterface(udev, %d) returned %d (%s)",
 					__func__, altinterface, ret, usb_strerror() );
@@ -196,9 +196,9 @@ static int nut_libusb_set_altinterface(usb_dev_handle *udev)
  * is accepted, or < 1 if not. If it isn't accepted, the next device
  * (if any) will be tried, until there are no more devices left.
  */
-static int nut_libusb_open(usb_dev_handle **udevp,
+static int nut_libusb_open(USBHandle_t **udevp,
 	USBDevice_t *curDevice, USBDeviceMatcher_t *matcher,
-	int (*callback)(usb_dev_handle *udev,
+	int (*callback)(USBHandle_t *udev,
 		USBDevice_t *hd, usb_ctrl_charbuf rdbuf, usb_ctrl_charbufsize rdlen)
 	)
 {
@@ -209,7 +209,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 	USBDeviceMatcher_t *m;
 	struct usb_device *dev;
 	struct usb_bus *bus;
-	usb_dev_handle *udev;
+	USBHandle_t *udev;
 	struct usb_interface_descriptor *iface;
 
 	int ret, res;
@@ -322,6 +322,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 	for (bus = busses; bus; bus = bus->next) {
 		for (dev = bus->devices; dev; dev = dev->next) {
 			/* int	if_claimed = 0; */
+			usb_dev_handle *dev_handle;
 
 			count_open_attempts++;
 
@@ -333,8 +334,8 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 			   supplied matcher */
 
 			/* open the device */
-			*udevp = udev = usb_open(dev);
-			if (!udev) {
+			dev_handle = usb_open(dev);
+			if (!dev_handle) {
 				/* It seems that with libusb-0.1 API we
 				 * can only evaluate the string value of
 				 * usb_strerror() return values - in the
@@ -361,6 +362,9 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 
 				continue;
 			}
+			udev = xcalloc(1, sizeof(udev));
+			udev->dev_handle = dev_handle;
+			*udevp = udev;
 
 			/* collect the identifying information of this
 			   device. Note that this is safe, because
@@ -479,10 +483,10 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 			 * it force device claiming by unbinding
 			 * attached driver... From libhid */
 #ifdef WIN32
-			usb_set_configuration(udev, 1);
+			usb_set_configuration(udev->dev_handle, 1);
 #endif
 			retries = 3;
-			while ((ret = usb_claim_interface(udev, usb_subdriver.hid_rep_index)) < 0) {
+			while ((ret = usb_claim_interface(udev->dev_handle, usb_subdriver.hid_rep_index)) < 0) {
 				upsdebugx(2, "failed to claim USB device: %s",
 					usb_strerror());
 
@@ -491,7 +495,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 					goto next_device;
 				}
 
-				if (usb_detach_kernel_driver_np(udev, usb_subdriver.hid_rep_index) < 0) {
+				if (usb_detach_kernel_driver_np(udev->dev_handle, usb_subdriver.hid_rep_index) < 0) {
 					upsdebugx(2, "failed to detach kernel driver from USB device: %s",
 						usb_strerror());
 				} else {
@@ -511,7 +515,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 					usb_strerror());
 			}
 #else
-			if ((ret = usb_claim_interface(udev, usb_subdriver.hid_rep_index)) < 0) {
+			if ((ret = usb_claim_interface(udev->dev_handle, usb_subdriver.hid_rep_index)) < 0) {
 				if (ret == LIBUSB_ERROR_BUSY && testvar("allow_duplicates")) {
 					upsdebugx(2, "Configured to allow_duplicates so looking for another similar device");
 					goto next_device;
@@ -550,7 +554,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 
 			/* FIRST METHOD: ask for HID descriptor directly. */
 			/* res = usb_get_descriptor(udev, USB_DT_HID, hid_desc_index, buf, 0x9); */
-			res = usb_control_msg(udev,
+			res = usb_control_msg(udev->dev_handle,
 				USB_ENDPOINT_IN + 1,
 				USB_REQ_GET_DESCRIPTOR,
 				(USB_DT_HID << 8) + usb_subdriver.hid_desc_index,
@@ -643,7 +647,7 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 			/* Note: rdlen is safe to cast to unsigned below,
 			 * since the <0 case was ruled out above */
 			/* res = usb_get_descriptor(udev, USB_DT_REPORT, hid_desc_index, bigbuf, rdlen); */
-			res = usb_control_msg(udev,
+			res = usb_control_msg(udev->dev_handle,
 				USB_ENDPOINT_IN + 1,
 				USB_REQ_GET_DESCRIPTOR,
 				(USB_DT_REPORT << 8) + usb_subdriver.hid_desc_index,
@@ -709,8 +713,8 @@ static int nut_libusb_open(usb_dev_handle **udevp,
 			 * and goes into uninterruptible sleep.
 			 * So don't do it. */
 			/* if (if_claimed)
-				usb_release_interface(udev, 0); */
-			usb_close(udev);
+				usb_release_interface(udev->dev_handle, 0); */
+			usb_close(udev->dev_handle);
 		}
 	}
 
@@ -790,7 +794,7 @@ static int nut_libusb_strerror(const int ret, const char *desc)
  *	int ReportId, unsigned char *raw_buf, int ReportSize)
  */
 static int nut_libusb_get_report(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_repindex ReportId,
 	usb_ctrl_charbuf raw_buf,
 	usb_ctrl_charbufsize ReportSize)
@@ -803,7 +807,7 @@ static int nut_libusb_get_report(
 		return 0;
 	}
 
-	ret = usb_control_msg(udev,
+	ret = usb_control_msg(udev->dev_handle,
 		USB_ENDPOINT_IN + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 		0x01, /* HID_REPORT_GET */
 		ReportId+(0x03<<8), /* HID_REPORT_TYPE_FEATURE */
@@ -827,7 +831,7 @@ static int nut_libusb_get_report(
  *	int ReportId, unsigned char *raw_buf, int ReportSize)
  */
 static int nut_libusb_set_report(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_repindex ReportId,
 	usb_ctrl_charbuf raw_buf,
 	usb_ctrl_charbufsize ReportSize)
@@ -838,7 +842,7 @@ static int nut_libusb_set_report(
 		return 0;
 	}
 
-	ret = usb_control_msg(udev,
+	ret = usb_control_msg(udev->dev_handle,
 		USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 		0x09, /* HID_REPORT_SET = 0x09*/
 		ReportId+(0x03<<8), /* HID_REPORT_TYPE_FEATURE */
@@ -862,7 +866,7 @@ static int nut_libusb_set_report(
  *	int StringIdx, char *buf, int buflen)
  */
 static int nut_libusb_get_string(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_strindex StringIdx,
 	char *buf,
 	usb_ctrl_charbufsize buflen)
@@ -906,7 +910,7 @@ static int nut_libusb_get_string(
  *	unsigned char *buf, int bufsize, int timeout)
  */
 static int nut_libusb_get_interrupt(
-	usb_dev_handle *udev,
+	USBHandle_t *udev,
 	usb_ctrl_charbuf buf,
 	usb_ctrl_charbufsize bufsize,
 	usb_ctrl_timeout_msec timeout)
@@ -918,7 +922,7 @@ static int nut_libusb_get_interrupt(
 	}
 
 	/* Interrupt EP is USB_ENDPOINT_IN with offset defined in hid_ep_in, which is 0 by default, unless overridden in subdriver. */
-	ret = usb_interrupt_read(udev, USB_ENDPOINT_IN + usb_subdriver.hid_ep_in, (char *)buf, bufsize, timeout);
+	ret = usb_interrupt_read(udev->dev_handle, USB_ENDPOINT_IN + usb_subdriver.hid_ep_in, (char *)buf, bufsize, timeout);
 
 #ifdef WIN32
 	errno = -ret;
@@ -926,13 +930,13 @@ static int nut_libusb_get_interrupt(
 
 	/* Clear stall condition */
 	if (ret == -EPIPE) {
-		ret = usb_clear_halt(udev, 0x81);
+		ret = usb_clear_halt(udev->dev_handle, 0x81);
 	}
 
 	return nut_libusb_strerror(ret, __func__);
 }
 
-static void nut_libusb_close(usb_dev_handle *udev)
+static void nut_libusb_close(USBHandle_t *udev)
 {
 	if (!udev) {
 		return;
@@ -942,7 +946,7 @@ static void nut_libusb_close(usb_dev_handle *udev)
 	 * into uninterruptible sleep.  So don't do it.
 	 */
 	/* usb_release_interface(udev, 0); */
-	usb_close(udev);
+	usb_close(udev->dev_handle);
 }
 
 #if (!HAVE_STRCASESTR) && (HAVE_STRSTR && HAVE_STRLWR && HAVE_STRDUP)
