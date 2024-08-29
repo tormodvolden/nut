@@ -480,6 +480,7 @@ typedef struct usb_communication_subdriver_s usb_communication_subdriver_t;
 /* Extended device handle for nut USB functions */
 typedef struct USBHandle_s {
 	usb_dev_handle *dev_handle;
+	usb_communication_subdriver_t subdriver;
 	int langid;
 	// options like langid_fix
 } USBHandle_t;
