@@ -536,8 +536,8 @@ static void	qx_initbattery(void)
 
 /* == USB communication subdrivers == */
 #if defined(QX_USB) && !defined(TESTING)
+static USBHandle_t			*udev;
 static usb_communication_subdriver_t	*usb = &usb_subdriver;
-static usb_dev_handle			*udev = NULL;
 static USBDevice_t			usbdevice;
 static USBDeviceMatcher_t		*reopen_matcher = NULL;
 static USBDeviceMatcher_t		*regex_matcher = NULL;
@@ -567,7 +567,7 @@ static int	cypress_command(const char *cmd, char *buf, size_t buflen)
 
 		/* Write data in 8-byte chunks */
 		/* ret = usb->set_report(udev, 0, (unsigned char *)&tmp[i], 8); */
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 			0x09, 0x200, 0,
 			(usb_ctrl_charbuf)&tmp[i], 8, 5000);
@@ -590,7 +590,7 @@ static int	cypress_command(const char *cmd, char *buf, size_t buflen)
 
 		/* Read data in 8-byte chunks */
 		/* ret = usb->get_interrupt(udev, (unsigned char *)&buf[i], 8, 1000); */
-		ret = usb_interrupt_read(udev,
+		ret = usb_interrupt_read(udev->dev_handle,
 			0x81,
 			(usb_ctrl_charbuf)&buf[i], 8, 1000);
 
@@ -647,7 +647,7 @@ static int	sgs_command(const char *cmd, char *buf, size_t buflen)
 		memcpy(&tmp[1], &cmd[i], (unsigned char)ret);
 
 		/* Write data in 8-byte chunks */
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			USB_ENDPOINT_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 			0x09, 0x200, 0,
 			(usb_ctrl_charbuf)tmp, 8, 5000);
@@ -673,7 +673,7 @@ static int	sgs_command(const char *cmd, char *buf, size_t buflen)
 		memset(tmp, 0, sizeof(tmp));
 
 		/* Read data in 8-byte chunks */
-		ret = usb_interrupt_read(udev,
+		ret = usb_interrupt_read(udev->dev_handle,
 			0x81,
 			(usb_ctrl_charbuf)tmp, 8, 1000);
 
@@ -741,7 +741,7 @@ static int	phoenix_command(const char *cmd, char *buf, size_t buflen)
 
 		/* Read data in 8-byte chunks */
 		/* ret = usb->get_interrupt(udev, (unsigned char *)tmp, 8, 1000); */
-		ret = usb_interrupt_read(udev,
+		ret = usb_interrupt_read(udev->dev_handle,
 			0x81,
 			(usb_ctrl_charbuf)tmp, 8, 1000);
 
@@ -752,7 +752,7 @@ static int	phoenix_command(const char *cmd, char *buf, size_t buflen)
 		switch (ret)
 		{
 		case LIBUSB_ERROR_PIPE:	/* Broken pipe */
-			usb_clear_halt(udev, 0x81);
+			usb_clear_halt(udev->dev_handle, 0x81);
 			break;
 
 		case LIBUSB_ERROR_TIMEOUT:	/* Connection timed out */
@@ -780,7 +780,7 @@ static int	phoenix_command(const char *cmd, char *buf, size_t buflen)
 
 		/* Write data in 8-byte chunks */
 		/* ret = usb->set_report(udev, 0, (unsigned char *)&tmp[i], 8); */
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 			0x09, 0x200, 0, (usb_ctrl_charbuf)&tmp[i], 8, 1000);
 
@@ -801,7 +801,7 @@ static int	phoenix_command(const char *cmd, char *buf, size_t buflen)
 
 		/* Read data in 8-byte chunks */
 		/* ret = usb->get_interrupt(udev, (unsigned char *)&buf[i], 8, 1000); */
-		ret = usb_interrupt_read(udev,
+		ret = usb_interrupt_read(udev->dev_handle,
 			0x81,
 			(usb_ctrl_charbuf)&buf[i], 8, 1000);
 
@@ -848,7 +848,7 @@ static int	ippon_command(const char *cmd, char *buf, size_t buflen)
 	for (i = 0; i < strlen(tmp); i += (size_t)ret) {
 
 		/* Write data in 8-byte chunks */
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 			0x09, 0x2, 0, (usb_ctrl_charbuf)&tmp[i], 8, 1000);
 
@@ -864,7 +864,7 @@ static int	ippon_command(const char *cmd, char *buf, size_t buflen)
 	upsdebugx(3, "send: %.*s", (int)strcspn(tmp, "\r"), tmp);
 
 	/* Read all 64 bytes of the reply in one large chunk */
-	ret = usb_interrupt_read(udev,
+	ret = usb_interrupt_read(udev->dev_handle,
 		0x81,
 		(usb_ctrl_charbuf)tmp, sizeof(tmp), 1000);
 
@@ -936,32 +936,32 @@ static int 	hunnox_protocol(int asking_for)
 	switch (hunnox_step) {
 		case 0:
 			upsdebugx(3, "asking for: %02X", 0x00);
-			usb_get_string(udev, 0x00,
+			usb_get_string(udev->dev_handle, 0x00,
 				langid_fix_local, (usb_ctrl_charbuf)buf, 1026);
-			usb_get_string(udev, 0x00,
+			usb_get_string(udev->dev_handle, 0x00,
 				langid_fix_local, (usb_ctrl_charbuf)buf, 1026);
-			usb_get_string(udev, 0x01,
+			usb_get_string(udev->dev_handle, 0x01,
 				langid_fix_local, (usb_ctrl_charbuf)buf, 1026);
 			usleep(10000);
 			break;
 		case 1:
 			if (asking_for != 0x0d) {
 				upsdebugx(3, "asking for: %02X", 0x0d);
-				usb_get_string(udev, 0x0d,
+				usb_get_string(udev->dev_handle, 0x0d,
 					langid_fix_local, (usb_ctrl_charbuf)buf, 102);
 			}
 			break;
 		case 2:
 			if (asking_for != 0x03) {
 				upsdebugx(3, "asking for: %02X", 0x03);
-				usb_get_string(udev, 0x03,
+				usb_get_string(udev->dev_handle, 0x03,
 					langid_fix_local, (usb_ctrl_charbuf)buf, 102);
 			}
 			break;
 		case 3:
 			if (asking_for != 0x0c) {
 				upsdebugx(3, "asking for: %02X", 0x0c);
-				usb_get_string(udev, 0x0c,
+				usb_get_string(udev->dev_handle, 0x0c,
 					langid_fix_local, (usb_ctrl_charbuf)buf, 102);
 			}
 			break;
@@ -1023,11 +1023,11 @@ static int	krauler_command(const char *cmd, char *buf, size_t buflen)
 
 			if (langid_fix != -1) {
 				/* Apply langid_fix value */
-				ret = usb_get_string(udev,
+				ret = usb_get_string(udev->dev_handle,
 					command[i].index, langid_fix,
 					(usb_ctrl_charbuf)buf, buflen);
 			} else {
-				ret = usb_get_string_simple(udev,
+				ret = usb_get_string_simple(udev->dev_handle,
 					command[i].index,
 					(usb_ctrl_charbuf)buf, buflen);
 			}
@@ -1189,7 +1189,7 @@ static int	fabula_command(const char *cmd, char *buf, size_t buflen)
 	upsdebugx(4, "command index: 0x%02x", index);
 
 	/* Send command/Read reply */
-	ret = usb_get_string_simple(udev, index, (usb_ctrl_charbuf)buf, buflen);
+	ret = usb_get_string_simple(udev->dev_handle, index, (usb_ctrl_charbuf)buf, buflen);
 
 	if (ret <= 0) {
 		upsdebugx(3, "read: %s (%d)",
@@ -1332,10 +1332,10 @@ static int	hunnox_command(const char *cmd, char *buf, size_t buflen)
 
 	/* Send command/Read reply */
 	if (langid_fix != -1) {
-		ret = usb_get_string(udev,
+		ret = usb_get_string(udev->dev_handle,
 			index, langid_fix, (usb_ctrl_charbuf)buf, buflen);
 	} else {
-		ret = usb_get_string_simple(udev,
+		ret = usb_get_string_simple(udev->dev_handle,
 			index, (usb_ctrl_charbuf)buf, buflen);
 	}
 
@@ -1503,7 +1503,7 @@ static int	fuji_command(const char *cmd, char *buf, size_t buflen)
 	upsdebug_hex(4, "command", (char *)tmp, 8);
 
 	/* Write data */
-	ret = usb_interrupt_write(udev,
+	ret = usb_interrupt_write(udev->dev_handle,
 		USB_ENDPOINT_OUT | 2,
 		(const usb_ctrl_charbuf)tmp,
 		8, USB_TIMEOUT);
@@ -1523,7 +1523,7 @@ static int	fuji_command(const char *cmd, char *buf, size_t buflen)
 	for (i = 0; (i <= buflen - 8) && (memchr(buf, '\r', buflen) == NULL); i += (size_t)ret) {
 
 		/* Read data in 8-byte chunks */
-		ret = usb_interrupt_read(udev,
+		ret = usb_interrupt_read(udev->dev_handle,
 			USB_ENDPOINT_IN | 1,
 			(usb_ctrl_charbuf)&buf[i], 8, 1000);
 
@@ -1569,7 +1569,7 @@ static int	phoenixtec_command(const char *cmd, char *buf, size_t buflen)
 		buflen = (INT_MAX - 1);
 	}
 
-	if ((ret = usb_control_msg(udev,
+	if ((ret = usb_control_msg(udev->dev_handle,
 			USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_ENDPOINT,
 			0x0d, 0, 0, (usb_ctrl_charbuf)cmd, (int)cmdlen, 1000)) <= 0
 	) {
@@ -1601,7 +1601,7 @@ static int	phoenixtec_command(const char *cmd, char *buf, size_t buflen)
 
 	for (p = buf; p < buf + buflen; p += ret) {
 		/* buflen constrained to INT_MAX above, so we can cast: */
-		if ((ret = usb_interrupt_read(udev,
+		if ((ret = usb_interrupt_read(udev->dev_handle,
 				USB_ENDPOINT_IN | 1,
 				(usb_ctrl_charbuf)p, (int)(buf + buflen - p), 1000)) <= 0
 		) {
@@ -1659,7 +1659,7 @@ static int	snr_command(const char *cmd, char *buf, size_t buflen)
 	 * Without the interrupt UPS returns zeros for some time,
 	 * and afterwards NUT returns a communications error.
 	 */
-	usb_interrupt_read(udev,
+	usb_interrupt_read(udev->dev_handle,
 		0x81,
 		(usb_ctrl_charbuf)buf, 102, 1000);
 
@@ -1675,7 +1675,7 @@ static int	snr_command(const char *cmd, char *buf, size_t buflen)
 			unsigned int	di, si, size;
 			int	ret;
 
-			ret = usb_get_string(udev,
+			ret = usb_get_string(udev->dev_handle,
 				command[i].index, langid_fix,
 				(usb_ctrl_charbuf)buf, 102);
 
@@ -1772,7 +1772,7 @@ static int ablerex_command(const char *cmd, char *buf, size_t buflen)
 			tmp[3+iii] = cmd[iii];
 		}
 
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			0x21,
 			0x09, 0x305, 0,
 			(usb_ctrl_charbuf)tmp, 47, 1000);
@@ -1781,7 +1781,7 @@ static int ablerex_command(const char *cmd, char *buf, size_t buflen)
 
 		usleep(500000);
 		tmpryy[0] = 0x05;
-		ret = usb_control_msg(udev,
+		ret = usb_control_msg(udev->dev_handle,
 			0xA1,
 			0x01, 0x305, 0,
 			(usb_ctrl_charbuf)tmpryy, 47, 1000);
@@ -1867,7 +1867,7 @@ static void load_armac_endpoint_cache(void)
 	armac_endpoint_cache.ok = FALSE;
 
 #if WITH_LIBUSB_1_0
-	dev = libusb_get_device(udev);
+	dev = libusb_get_device(udev->dev_handle);
 	if (!dev) {
 		upsdebugx(4, "load_armac_endpoint_cache: unable to libusb_get_device");
 		return;
@@ -1993,7 +1993,7 @@ static int	armac_command(const char *cmd, char *buf, size_t buflen)
 		tmpbuf[0] = 0xa0 + cmdlen;
 		memcpy(tmpbuf + 1, cmd, cmdlen);
 
-		ret = usb_interrupt_write(udev,
+		ret = usb_interrupt_write(udev->dev_handle,
 			armac_endpoint_cache.out_endpoint_address,
 			(usb_ctrl_charbuf)tmpbuf, cmdlen + 1, 5000);
 
@@ -2001,7 +2001,7 @@ static int	armac_command(const char *cmd, char *buf, size_t buflen)
 	} else {
 		/* Cleanup buffer before sending a new command */
 		for (i = 0; i < 10; i++) {
-			ret = usb_interrupt_read(udev, 0x81,
+			ret = usb_interrupt_read(udev->dev_handle, 0x81,
 				(usb_ctrl_charbuf)tmpbuf, ARMAC_READ_SIZE_FOR_CONTROL, 100);
 			if (ret != ARMAC_READ_SIZE_FOR_CONTROL) {
 				/* Timeout - buffer is clean. */
@@ -2017,7 +2017,7 @@ static int	armac_command(const char *cmd, char *buf, size_t buflen)
 			memset(tmpbuf, 0, sizeof(tmpbuf));
 			tmpbuf[0] = 0xa0 + bytes_to_send;
 			memcpy(tmpbuf + 1, cmd + i, bytes_to_send);
-			ret = usb_control_msg(udev,
+			ret = usb_control_msg(udev->dev_handle,
 				USB_ENDPOINT_OUT + USB_TYPE_CLASS + USB_RECIP_INTERFACE,
 				0x09, 0x200, 0,
 				(usb_ctrl_charbuf)tmpbuf, 4, 5000);
@@ -2042,7 +2042,7 @@ static int	armac_command(const char *cmd, char *buf, size_t buflen)
 		size_t bytes_available;
 
 		/* Read data in 6-byte chunks */
-		ret = usb_interrupt_read(udev, use_interrupt ? armac_endpoint_cache.in_endpoint_address : 0x81,
+		ret = usb_interrupt_read(udev->dev_handle, use_interrupt ? armac_endpoint_cache.in_endpoint_address : 0x81,
 			(usb_ctrl_charbuf)tmpbuf, read_size, 1000);
 
 		/* Any errors here mean that we are unable to read a reply
@@ -3399,7 +3399,7 @@ void	upsdrv_initups(void)
 			 *   See USB 2.0 specification, section 9.6.7, for more
 			 *       information on this.
 			 * This should allow automatic application of the workaround */
-			ret = usb_get_string(udev, 0, 0,
+			ret = usb_get_string(udev->dev_handle, 0, 0,
 				(usb_ctrl_charbuf)tbuf, sizeof(tbuf));
 			if (ret >= 4) {
 				langid = ((uint8_t)tbuf[2]) | (((uint8_t)tbuf[3]) << 8);
@@ -3548,7 +3548,7 @@ static ssize_t	qx_command(const char *cmd, char *buf, size_t buflen)
 #	endif	/* WITH_LIBUSB_0_1 */
 
 		case LIBUSB_ERROR_PIPE:	/* Broken pipe */
-			if (usb_clear_halt(udev, 0x81) == 0) {
+			if (usb_clear_halt(udev->dev_handle, 0x81) == 0) {
 				upsdebugx(1, "Stall condition cleared");
 				break;
 			}
@@ -3557,7 +3557,7 @@ static ssize_t	qx_command(const char *cmd, char *buf, size_t buflen)
 		case -ETIME:		/* Timer expired */
 		fallthrough_case_ETIME:
 #endif	/* ETIME && WITH_LIBUSB_0_1 */
-			if (usb_reset(udev) == 0) {
+			if (usb_reset(udev->dev_handle) == 0) {
 				upsdebugx(1, "Device reset handled");
 			}
 			goto fallthrough_case_reconnect;
