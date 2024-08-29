@@ -33,7 +33,7 @@
 #define NUT_LIBUSB_H_SEEN 1
 
 #include "main.h"	/* for subdrv_info_t */
-#include "usb-common.h"	/* for USBDevice_t and USBDeviceMatcher_t,
+#include "usb-common.h"	/* for USBDevice_t, USBHandle_t, and USBDeviceMatcher_t,
                          * and for libusb headers and 0.1/1.0 mapping */
 
 /* Used in drivers/libusb*.c sources: */

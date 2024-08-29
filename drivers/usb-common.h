@@ -474,6 +474,14 @@
 
 /* USB standard timeout [ms] */
 #define USB_TIMEOUT 5000
+
+/* Extended device handle for nut USB functions */
+typedef struct USBHandle_s {
+	usb_dev_handle *dev_handle;
+	int langid;
+	// options like langid_fix
+} USBHandle_t;
+
 #if (defined WITH_USB_BUSPORT) && (WITH_USB_BUSPORT)
 # define USBMATCHER_REGEXP_ARRAY_LIMIT	8
 #else
