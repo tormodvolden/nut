@@ -59,6 +59,8 @@ upsdrv_info_t comm_upsdrv_info = {
 static char *strcasestr(const char *haystack, const char *needle);
 #endif
 
+const usb_communication_subdriver_t default_usb_subdriver;
+
 static void nut_libusb_close(USBHandle_t *udev);
 
 /*! Add USB-related driver variables with addvar() and dstate_setinfo().
@@ -211,6 +213,7 @@ static int nut_libusb_open(USBHandle_t **udevp,
 	struct usb_bus *bus;
 	USBHandle_t *udev;
 	struct usb_interface_descriptor *iface;
+	usb_communication_subdriver_t usb_subdriver = default_usb_subdriver;
 
 	int ret, res;
 	usb_ctrl_char buf[20];
@@ -980,7 +983,7 @@ err:
 }
 #endif
 
-usb_communication_subdriver_t usb_subdriver = {
+const usb_communication_subdriver_t default_usb_subdriver = {
 	USB_DRIVER_NAME,
 	USB_DRIVER_VERSION,
 	nut_libusb_open,
@@ -995,3 +998,6 @@ usb_communication_subdriver_t usb_subdriver = {
 	LIBUSB_DEFAULT_HID_EP_IN,
 	LIBUSB_DEFAULT_HID_EP_OUT
 };
+
+// global to get rid off
+usb_communication_subdriver_t usb_subdriver = default_usb_subdriver;

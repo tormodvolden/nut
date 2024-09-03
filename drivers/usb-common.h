@@ -475,6 +475,8 @@
 /* USB standard timeout [ms] */
 #define USB_TIMEOUT 5000
 
+typedef struct usb_communication_subdriver_s usb_communication_subdriver_t;
+
 /* Extended device handle for nut USB functions */
 typedef struct USBHandle_s {
 	usb_dev_handle *dev_handle;

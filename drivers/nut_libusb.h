@@ -116,6 +116,7 @@ typedef struct usb_communication_subdriver_s {
 	usb_ctrl_endpoint hid_ep_out;			/* Output interrupt endpoint. Default is 1	*/
 } usb_communication_subdriver_t;
 
+// global to get rid off
 extern usb_communication_subdriver_t	usb_subdriver;
 
 #endif /* NUT_LIBUSB_H_SEEN */
