@@ -367,6 +367,7 @@ static int nut_libusb_open(USBHandle_t **udevp,
 			}
 			udev = xcalloc(1, sizeof(udev));
 			udev->dev_handle = dev_handle;
+			udev->subdriver = default_usb_subdriver;
 			*udevp = udev;
 
 			/* collect the identifying information of this
