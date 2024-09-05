@@ -3450,7 +3450,7 @@ void	upsdrv_cleanup(void)
 # endif	/* QX_SERIAL */
 
 # ifdef QX_USB
-		usb->close_dev(udev);
+		udev->subdriver.close_dev(udev);
 		USBFreeExactMatcher(reopen_matcher);
 		USBFreeRegexMatcher(regex_matcher);
 		free(usbdevice.Vendor);
@@ -3571,7 +3571,7 @@ static ssize_t	qx_command(const char *cmd, char *buf, size_t buflen)
 		fallthrough_case_reconnect:
 			/* Uh oh, got to reconnect! */
 			dstate_setinfo("driver.state", "reconnect.trying");
-			usb->close_dev(udev);
+			udev->subdriver.close_dev(udev);
 			udev = NULL;
 			break;
 
